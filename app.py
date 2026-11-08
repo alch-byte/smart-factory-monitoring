@@ -1,16 +1,15 @@
 
-# ==========================================
-# 1. 필요한 라이브러리 불러오기
-# ==========================================
+%%writefile app.py
+
 import streamlit as st
 import pandas as pd
 import plotly.express as px
-import os
 
 
-# ==========================================
-# 2. 페이지 기본 설정
-# ==========================================
+# --------------------------------------------------
+# 1. 페이지 기본 설정
+# --------------------------------------------------
+
 st.set_page_config(
     page_title="스마트공장 생산 모니터링",
     page_icon="🏭",
@@ -18,9 +17,10 @@ st.set_page_config(
 )
 
 
-# ==========================================
-# 3. 화면 디자인 설정
-# ==========================================
+# --------------------------------------------------
+# 2. 화면 디자인 설정
+# --------------------------------------------------
+
 st.markdown("""
 <style>
     .stApp {
@@ -41,16 +41,12 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 
-# ==========================================
-# 4. 프로그램 제목
-# ==========================================
-st.title("🏭 스마트공장 생산 모니터링")
-st.markdown("---")
+# --------------------------------------------------
+# 3. 사이드바 메뉴
+# --------------------------------------------------
 
+st.sidebar.title("🏭 스마트공장")
 
-# ==========================================
-# 5. 사이드바 메뉴 구성
-# ==========================================
 menu = st.sidebar.radio(
     "메뉴 선택",
     [
@@ -62,38 +58,38 @@ menu = st.sidebar.radio(
 )
 
 
-# ==========================================
-# 6. CSV 데이터 불러오기
-# ==========================================
+# --------------------------------------------------
+# 4. CSV 데이터 불러오기
+# --------------------------------------------------
+
 file_name = "production_data.csv"
 
-# 현재 작업 폴더에 CSV 파일이 있는지 확인
-if os.path.exists(file_name):
-
+try:
+    # 현재 폴더에 CSV 파일이 있으면 불러오기
     df = pd.read_csv(file_name)
 
-else:
-    # 파일이 없으면 사용자가 CSV 파일을 업로드
+except FileNotFoundError:
+    # CSV 파일이 없으면 직접 업로드
     uploaded_file = st.sidebar.file_uploader(
-        "생산 데이터 CSV 파일 업로드",
+        "생산 데이터 CSV 업로드",
         type=["csv"]
     )
 
-    if uploaded_file is None:
-        st.info("production_data.csv 파일을 업로드해주세요.")
+    if uploaded_file is not None:
+        df = pd.read_csv(uploaded_file)
+    else:
+        st.warning("생산 데이터 CSV 파일을 업로드해주세요.")
         st.stop()
 
-    df = pd.read_csv(uploaded_file)
 
+# --------------------------------------------------
+# 5. 데이터 전처리
+# --------------------------------------------------
 
-# ==========================================
-# 7. 데이터 전처리
-# ==========================================
-
-# 원본 데이터를 보호하기 위해 복사
+# 원본 데이터 보호를 위해 복사
 df = df.copy()
 
-# 분석에 필요한 컬럼 목록
+# 필요한 컬럼 목록
 required_columns = [
     "timestamp",
     "machine_id",
@@ -105,19 +101,17 @@ required_columns = [
     "operating_status"
 ]
 
-# CSV에 필요한 컬럼이 있는지 확인
+# 필요한 컬럼이 있는지 확인
 missing_columns = [
     col for col in required_columns
     if col not in df.columns
 ]
 
 if missing_columns:
-    st.error(
-        f"CSV 파일에 필요한 컬럼이 없습니다: {missing_columns}"
-    )
+    st.error(f"필요한 컬럼이 없습니다: {missing_columns}")
     st.stop()
 
-# 날짜 데이터를 날짜 형식으로 변환
+# 날짜 데이터 변환
 df["timestamp"] = pd.to_datetime(
     df["timestamp"],
     errors="coerce"
@@ -126,7 +120,7 @@ df["timestamp"] = pd.to_datetime(
 # 날짜 변환에 실패한 행 제거
 df = df.dropna(subset=["timestamp"])
 
-# 생산량과 불량량을 숫자 형식으로 변환
+# 생산량과 불량량 숫자로 변환
 df["production_count"] = pd.to_numeric(
     df["production_count"],
     errors="coerce"
@@ -137,7 +131,7 @@ df["defect_count"] = pd.to_numeric(
     errors="coerce"
 ).fillna(0)
 
-# 온도와 습도를 숫자 형식으로 변환
+# 온도와 습도 숫자로 변환
 df["temperature"] = pd.to_numeric(
     df["temperature"],
     errors="coerce"
@@ -148,126 +142,117 @@ df["humidity"] = pd.to_numeric(
     errors="coerce"
 )
 
-# 날짜순으로 정렬
+# 날짜순 정렬
 df = df.sort_values("timestamp")
 
+# 데이터가 비어 있는지 확인
+if df.empty:
+    st.warning("분석할 데이터가 없습니다.")
+    st.stop()
 
-# ==========================================
-# 8. 생산 현황 메뉴
-# ==========================================
+
+# --------------------------------------------------
+# 6. 생산 현황 메뉴
+# --------------------------------------------------
+
 if menu == "생산 현황":
 
-    st.header("📊 생산 현황")
+    st.title("📊 생산 현황")
 
-    # --------------------------------------
-    # 8-1. 설비 및 날짜 필터
-    # --------------------------------------
-
-    if df.empty:
-        st.warning("조회할 생산 데이터가 없습니다.")
-        st.stop()
-
-    filter_col1, filter_col2, filter_col3 = st.columns(3)
-
-    # CSV에 있는 설비 목록 가져오기
+    # 설비 목록
     machine_list = sorted(
         df["machine_id"].dropna().unique().tolist(),
         key=str
     )
 
-    # 전체 설비 옵션 추가
     machine_options = ["전체"] + machine_list
 
-    selected_machine = filter_col1.selectbox(
-        "설비번호 선택",
+    # 설비 선택
+    selected_machine = st.selectbox(
+        "설비 선택",
         machine_options
     )
 
-    # 데이터의 시작 날짜와 종료 날짜
+    # 날짜 선택
     min_date = df["timestamp"].min().date()
     max_date = df["timestamp"].max().date()
 
-    start_date = filter_col2.date_input(
-        "시작일",
-        value=min_date
-    )
+    col1, col2 = st.columns(2)
 
-    end_date = filter_col3.date_input(
-        "종료일",
-        value=max_date
-    )
+    with col1:
+        start_date = st.date_input(
+            "시작 날짜",
+            value=min_date,
+            min_value=min_date,
+            max_value=max_date
+        )
 
-    # 시작일이 종료일보다 늦은 경우 확인
+    with col2:
+        end_date = st.date_input(
+            "종료 날짜",
+            value=max_date,
+            min_value=min_date,
+            max_value=max_date
+        )
+
+    # 날짜 범위 확인
     if start_date > end_date:
-        st.error("시작일은 종료일보다 늦을 수 없습니다.")
+        st.error("시작 날짜는 종료 날짜보다 늦을 수 없습니다.")
         st.stop()
 
-    # --------------------------------------
-    # 8-2. 설비 및 날짜 필터 적용
-    # --------------------------------------
-
-    # 원본 데이터 복사
+    # 데이터 복사
     filtered_df = df.copy()
 
-    # 선택한 설비만 필터링
+    # 설비 필터링
     if selected_machine != "전체":
-
         filtered_df = filtered_df[
             filtered_df["machine_id"] == selected_machine
         ]
 
-    # 선택한 날짜 범위 필터링
-    # 종료일의 마지막 시간까지 포함하기 위해 하루를 더함
+    # 날짜 필터링
     filtered_df = filtered_df[
         (filtered_df["timestamp"] >= pd.Timestamp(start_date)) &
-        (filtered_df["timestamp"] < (
+        (
+            filtered_df["timestamp"] <
             pd.Timestamp(end_date) + pd.Timedelta(days=1)
-        ))
+        )
     ]
 
-    # 필터 결과가 없는 경우
+    # 조회 결과 확인
     if filtered_df.empty:
         st.warning("선택한 조건에 해당하는 데이터가 없습니다.")
         st.stop()
 
-    # --------------------------------------
-    # 8-3. 주요 생산 지표 계산
-    # --------------------------------------
-
-    # 총생산량
+    # 전체 생산량과 불량량 계산
     total_production = filtered_df["production_count"].sum()
-
-    # 불량 제품 수량
     total_defect = filtered_df["defect_count"].sum()
 
-    # 정상 제품 수량
-    normal_production = total_production - total_defect
+    # 정상 제품 수 계산
+    normal_count = total_production - total_defect
 
-    # 전체 불량률
+    # 불량률 계산
     if total_production > 0:
         defect_rate = total_defect / total_production * 100
+        defect_rate_text = f"{defect_rate:.2f}%"
     else:
-        defect_rate = 0
+        defect_rate_text = "계산 불가"
 
-    # 평균 공정 온도
+    # 평균 온도 계산
     avg_temperature = filtered_df["temperature"].mean()
 
-    # --------------------------------------
-    # 8-4. 주요 생산 지표 화면 표시
-    # --------------------------------------
-
-    st.subheader("📌 주요 생산 지표")
+    # KPI 표시
+    st.subheader("주요 생산 지표")
 
     col1, col2, col3, col4 = st.columns(4)
 
     col1.metric(
-        "총생산량",
+        "총 생산량",
         f"{total_production:,.0f}개"
     )
 
     col2.metric(
         "정상 제품 수",
-        f"{normal_production:,.0f}개"
+        f"{normal_count:,.0f}개"
     )
 
     col3.metric(
@@ -276,117 +261,77 @@ if menu == "생산 현황":
     )
 
     col4.metric(
-        "전체 불량률",
-        f"{defect_rate:.2f}%"
+        "불량률",
+        defect_rate_text
     )
 
-    # 평균 공정 온도 표시
-    temp_col1, temp_col2, temp_col3 = st.columns(3)
+    st.metric(
+        "평균 공정 온도",
+        f"{avg_temperature:.1f}°C"
+        if pd.notna(avg_temperature)
+        else "데이터 없음"
+    )
 
-    if pd.notna(avg_temperature):
-        temp_col2.metric(
-            "평균 공정 온도",
-            f"{avg_temperature:.2f} ℃"
-        )
-    else:
-        temp_col2.metric(
-            "평균 공정 온도",
-            "-"
-        )
+    # --------------------------------------------------
+    # 생산 목표 달성률
+    # --------------------------------------------------
 
-    # --------------------------------------
-    # 8-5. 생산 목표 달성률
-    # --------------------------------------
+    st.subheader("🎯 생산 목표 달성률")
 
-    st.markdown("---")
-    st.subheader("🎯 생산 목표 달성 현황")
-
-    goal_col1, goal_col2 = st.columns(2)
-
-    # 사용자가 목표 생산량을 직접 입력
-    target_production = goal_col1.number_input(
+    target_production = st.number_input(
         "목표 생산량 (개)",
         min_value=1,
         value=10000,
         step=100
     )
 
-    # 현재 선택한 설비와 날짜에 해당하는 실제 생산량
-    goal_col2.metric(
-        "실제 생산량",
-        f"{total_production:,.0f}개"
-    )
-
-    # 목표 달성률 계산
     achievement_rate = (
-        total_production / target_production
-    ) * 100
-
-    # 목표 달성률 숫자 표시
-    st.metric(
-        "목표 달성률",
-        f"{achievement_rate:.1f}%"
+        total_production / target_production * 100
     )
 
-    # 진행률 막대는 최대 100%까지만 표시
-    progress_rate = min(achievement_rate, 100)
+    st.write(
+        f"생산 목표 달성률: **{achievement_rate:.1f}%**"
+    )
 
-    st.progress(progress_rate / 100)
+    # 진행률 막대그래프
+    st.progress(
+        min(achievement_rate, 100) / 100
+    )
 
-    # 목표 달성 여부 안내
     if achievement_rate >= 100:
-
-        if achievement_rate > 100:
-            st.success(
-                f"목표 생산량을 {achievement_rate - 100:.1f}% 초과했습니다."
-            )
-        else:
-            st.success("목표 생산량을 달성했습니다!")
-
+        st.success("생산 목표를 달성했습니다!")
     else:
-        st.info(
-            f"목표 달성까지 {100 - achievement_rate:.1f}% 남았습니다."
-        )
+        st.info("아직 생산 목표에 도달하지 못했습니다.")
 
-    # --------------------------------------
-    # 8-6. 설비별 생산량 TOP 10 그래프
-    # --------------------------------------
+    # --------------------------------------------------
+    # 설비별 생산량 TOP 10
+    # --------------------------------------------------
 
-    st.markdown("---")
-    st.subheader("🏭 설비별 생산량 TOP 10")
+    st.subheader("설비별 생산량 TOP 10")
 
-    # 설비별 생산량 합계 계산
-    machine_production = (
-        filtered_df
-        .groupby("machine_id")["production_count"]
+    production_by_machine = (
+        filtered_df.groupby("machine_id")["production_count"]
         .sum()
         .reset_index()
     )
 
-    # 생산량이 많은 순서로 정렬하고 상위 10개 선택
-    machine_top10 = (
-        machine_production
-        .sort_values(
-            "production_count",
-            ascending=False
-        )
-        .head(10)
-    )
+    production_by_machine = production_by_machine.sort_values(
+        "production_count",
+        ascending=False
+    ).head(10)
 
-    # 설비별 생산량 막대그래프 생성
     fig = px.bar(
-        machine_top10,
+        production_by_machine,
         x="machine_id",
         y="production_count",
         text="production_count",
+        title="설비별 생산량 TOP 10",
         labels={
             "machine_id": "설비번호",
-            "production_count": "생산량"
-        },
-        title="설비별 생산량 TOP 10"
+            "production_count": "생산량 (개)"
+        }
     )
 
-    # 그래프에 생산량 숫자 표시
     fig.update_traces(
         texttemplate="%{text:,.0f}",
         textposition="outside"
@@ -402,43 +347,38 @@ if menu == "생산 현황":
         use_container_width=True
     )
 
-    # --------------------------------------
-    # 8-7. CSV 데이터 정보 표시
-    # --------------------------------------
+    # --------------------------------------------------
+    # CSV 데이터 정보
+    # --------------------------------------------------
 
-    st.markdown("---")
-    st.subheader("📋 CSV 데이터 정보")
+    st.subheader("📁 생산 데이터 정보")
 
-    info_col1, info_col2, info_col3, info_col4 = st.columns(4)
+    col1, col2 = st.columns(2)
 
-    info_col1.metric(
-        "데이터 행 수",
-        f"{len(filtered_df):,}개"
+    col1.metric(
+        "조회 데이터 행 수",
+        f"{len(filtered_df):,}행"
     )
 
-    info_col2.metric(
-        "컬럼 수",
+    col2.metric(
+        "데이터 컬럼 수",
         f"{len(filtered_df.columns)}개"
     )
 
-    info_col3.metric(
-        "시작 시간",
-        str(filtered_df["timestamp"].min())
+    st.write(
+        f"조회 시작 시간: {filtered_df['timestamp'].min()}"
     )
 
-    info_col4.metric(
-        "종료 시간",
-        str(filtered_df["timestamp"].max())
+    st.write(
+        f"조회 종료 시간: {filtered_df['timestamp'].max()}"
     )
 
-    # --------------------------------------
-    # 8-8. 생산 기록 조회
-    # --------------------------------------
+    # --------------------------------------------------
+    # 생산 기록 조회
+    # --------------------------------------------------
 
-    st.markdown("---")
-    st.subheader("🔎 생산 기록 조회")
+    st.subheader("📋 생산 기록 조회")
 
-    # 현재 선택한 설비와 날짜에 해당하는 생산 기록 표시
     st.dataframe(
         filtered_df,
         use_container_width=True,
@@ -446,218 +386,280 @@ if menu == "생산 현황":
     )
 
 
-# ==========================================
-# 9. 품질 관리 메뉴
-# ==========================================
+# --------------------------------------------------
+# 7. 품질 관리 메뉴
+# --------------------------------------------------
+
 elif menu == "품질 관리":
 
-    # 첫째, 품질 관리 제목 표시
-    st.header("🔍 품질 관리")
+    st.title("🔍 품질 관리")
 
-    # --------------------------------------
-    # 9-1. 설비별 생산량과 불량 수량 집계
-    # --------------------------------------
+    # --------------------------------------------------
+    # 설비별 생산량과 불량량 집계
+    # --------------------------------------------------
 
-    # machine_id를 기준으로 데이터를 그룹화
-    # 각 설비의 생산량과 불량 수량을 합산
-    # dropna=False는 설비번호가 비어 있는 데이터도 집계하기 위한 설정
     quality_df = (
-        df.groupby("machine_id", dropna=False)[
+        df.groupby(
+            "machine_id",
+            dropna=False
+        )[
             ["production_count", "defect_count"]
         ]
         .sum()
         .reset_index()
     )
 
-    # --------------------------------------
-    # 9-2. 설비별 불량률 계산
-    # --------------------------------------
+    # --------------------------------------------------
+    # 설비별 불량률 계산
+    # --------------------------------------------------
 
     # 생산량이 0보다 큰 경우에만 불량률 계산
-    # 생산량이 0인 경우에는 '계산 불가'로 표시
-    quality_df["불량률"] = quality_df.apply(
+    quality_df["불량률(%)"] = quality_df.apply(
         lambda row: (
-            f"{row['defect_count'] / row['production_count'] * 100:.2f}%"
+            row["defect_count"] /
+            row["production_count"] * 100
             if row["production_count"] > 0
-            else "계산 불가"
+            else None
         ),
         axis=1
     )
 
-    # --------------------------------------
-    # 9-3. 전체 생산량과 불량 수량 계산
-    # --------------------------------------
+    # --------------------------------------------------
+    # 전체 품질 현황
+    # --------------------------------------------------
+
+    st.subheader("전체 품질 현황")
 
     total_production = quality_df["production_count"].sum()
     total_defect = quality_df["defect_count"].sum()
 
-    # 전체 생산량이 0보다 큰 경우 전체 불량률 계산
-    # 설비별 불량률을 평균 내지 않음
     if total_production > 0:
-
         total_defect_rate = (
-            total_defect / total_production
-        ) * 100
-
+            total_defect / total_production * 100
+        )
         total_defect_rate_text = f"{total_defect_rate:.2f}%"
-
     else:
-
         total_defect_rate_text = "계산 불가"
 
-    # --------------------------------------
-    # 9-4. 전체 품질 현황 표시
-    # --------------------------------------
+    col1, col2, col3 = st.columns(3)
 
-    st.subheader("📌 전체 품질 현황")
-
-    quality_col1, quality_col2, quality_col3 = st.columns(3)
-
-    quality_col1.metric(
+    col1.metric(
         "전체 생산량",
         f"{total_production:,.0f}개"
     )
 
-    quality_col2.metric(
+    col2.metric(
         "전체 불량 수량",
         f"{total_defect:,.0f}개"
     )
 
-    quality_col3.metric(
+    col3.metric(
         "전체 불량률",
         total_defect_rate_text
     )
 
-    # --------------------------------------
-    # 9-5. 설비별 품질 분석 표
-    # --------------------------------------
+    # --------------------------------------------------
+    # 설비별 불량률 TOP 10 그래프
+    # --------------------------------------------------
 
-    st.markdown("---")
-    st.subheader("🏭 설비별 품질 분석")
+    st.subheader("설비별 불량률 TOP 10")
 
-    # 표에 표시할 컬럼 이름 변경
-    quality_table = quality_df.rename(
+    # 생산량이 0인 설비는 그래프에서 제외
+    defect_rate_df = quality_df[
+        quality_df["production_count"] > 0
+    ].copy()
+
+    # 불량률이 높은 순서로 정렬
+    defect_rate_df = defect_rate_df.sort_values(
+        "불량률(%)",
+        ascending=False
+    )
+
+    # 상위 10개 설비만 선택
+    top10_df = defect_rate_df.head(10).copy()
+
+    if top10_df.empty:
+        st.warning(
+            "불량률을 계산할 수 있는 설비가 없습니다."
+        )
+
+    else:
+        # 막대 위에 표시할 불량률 문자열
+        top10_df["불량률 표시"] = (
+            top10_df["불량률(%)"].map(
+                lambda x: f"{x:.2f}%"
+            )
+        )
+
+        # Plotly 막대그래프 생성
+        fig = px.bar(
+            top10_df,
+            x="machine_id",
+            y="불량률(%)",
+            text="불량률 표시",
+            title="설비별 불량률 TOP 10",
+            labels={
+                "machine_id": "설비번호",
+                "불량률(%)": "불량률(%)"
+            }
+        )
+
+        # 막대 위에 불량률 표시
+        fig.update_traces(
+            textposition="outside",
+            cliponaxis=False
+        )
+
+        # 그래프 디자인 설정
+        fig.update_layout(
+            xaxis_title="설비번호",
+            yaxis_title="불량률(%)",
+            yaxis_ticksuffix="%",
+            plot_bgcolor="white",
+            paper_bgcolor="white"
+        )
+
+        # 그래프 화면 출력
+        st.plotly_chart(
+            fig,
+            use_container_width=True
+        )
+
+    # --------------------------------------------------
+    # 설비별 품질 분석 데이터 표
+    # --------------------------------------------------
+
+    st.subheader("설비별 품질 분석")
+
+    # 화면에 표시할 데이터 복사
+    quality_table = quality_df[
+        [
+            "machine_id",
+            "production_count",
+            "defect_count",
+            "불량률(%)"
+        ]
+    ].copy()
+
+    # 컬럼명 변경
+    quality_table = quality_table.rename(
         columns={
             "machine_id": "설비번호",
             "production_count": "총생산량",
-            "defect_count": "불량 수량"
+            "defect_count": "불량 수량",
+            "불량률(%)": "불량률"
         }
     )
 
-    # 생산량과 불량 수량을 정수 형태로 표시
-    quality_table["총생산량"] = quality_table["총생산량"].map(
-        lambda x: f"{x:,.0f}"
+    # 생산량과 불량 수량에 천 단위 쉼표 표시
+    quality_table["총생산량"] = (
+        quality_table["총생산량"].map(
+            lambda x: f"{x:,.0f}"
+        )
     )
 
-    quality_table["불량 수량"] = quality_table["불량 수량"].map(
-        lambda x: f"{x:,.0f}"
+    quality_table["불량 수량"] = (
+        quality_table["불량 수량"].map(
+            lambda x: f"{x:,.0f}"
+        )
     )
 
-    # 설비별 품질 현황 표 출력
+    # 불량률 소수점 둘째 자리 표시
+    quality_table["불량률"] = (
+        quality_table["불량률"].map(
+            lambda x: (
+                f"{x:.2f}%"
+                if pd.notna(x)
+                else "계산 불가"
+            )
+        )
+    )
+
+    # 품질 분석 표 출력
     st.dataframe(
-        quality_table[
-            ["설비번호", "총생산량", "불량 수량", "불량률"]
-        ],
+        quality_table,
         use_container_width=True,
         hide_index=True
     )
 
-    # --------------------------------------
-    # 9-6. 전체 설비 개수 표시
-    # --------------------------------------
-
-    # 그룹화된 설비 데이터의 행 개수 계산
+    # 분석된 설비 개수
     machine_count = len(quality_df)
 
-    st.markdown("---")
-
-    st.metric(
-        "분석된 전체 설비 개수",
-        f"{machine_count:,}대"
+    st.info(
+        f"분석된 전체 설비 개수: {machine_count}대"
     )
 
 
-# ==========================================
-# 10. 설비 모니터링 메뉴
-# ==========================================
+# --------------------------------------------------
+# 8. 설비 모니터링 메뉴
+# --------------------------------------------------
+
 elif menu == "설비 모니터링":
 
-    st.header("⚙️ 설비 모니터링")
+    st.title("⚙️ 설비 모니터링")
 
-    # 평균 온도와 평균 습도 계산
+    # 평균 온도와 습도 계산
     avg_temperature = df["temperature"].mean()
     avg_humidity = df["humidity"].mean()
 
     col1, col2 = st.columns(2)
 
-    # 평균 온도 표시
-    if pd.notna(avg_temperature):
-        col1.metric(
-            "평균 설비 온도",
-            f"{avg_temperature:.2f} ℃"
-        )
-    else:
-        col1.metric(
-            "평균 설비 온도",
-            "-"
-        )
+    col1.metric(
+        "평균 설비 온도",
+        f"{avg_temperature:.1f}°C"
+        if pd.notna(avg_temperature)
+        else "데이터 없음"
+    )
 
-    # 평균 습도 표시
-    if pd.notna(avg_humidity):
-        col2.metric(
-            "평균 설비 습도",
-            f"{avg_humidity:.2f}%"
-        )
-    else:
-        col2.metric(
-            "평균 설비 습도",
-            "-"
-        )
+    col2.metric(
+        "평균 설비 습도",
+        f"{avg_humidity:.1f}%"
+        if pd.notna(avg_humidity)
+        else "데이터 없음"
+    )
 
-    # 설비 운영 상태 데이터 표시
-    st.subheader("설비 운영 상태")
+    st.subheader("설비별 모니터링 데이터")
+
+    monitoring_columns = [
+        "timestamp",
+        "machine_id",
+        "temperature",
+        "humidity",
+        "operating_status"
+    ]
 
     st.dataframe(
-        df[
-            [
-                "timestamp",
-                "machine_id",
-                "temperature",
-                "humidity",
-                "operating_status"
-            ]
-        ],
+        df[monitoring_columns],
         use_container_width=True,
         hide_index=True
     )
 
 
-# ==========================================
-# 11. 데이터 관리 메뉴
-# ==========================================
+# --------------------------------------------------
+# 9. 데이터 관리 메뉴
+# --------------------------------------------------
+
 elif menu == "데이터 관리":
 
-    st.header("💾 데이터 관리")
+    st.title("📁 데이터 관리")
 
-    # 전체 생산 데이터 표시
     st.subheader("전체 생산 데이터")
 
+    # 전체 데이터 표시
     st.dataframe(
         df,
         use_container_width=True,
         hide_index=True
     )
 
-    # CSV 다운로드용 데이터 생성
+    # CSV 다운로드
     csv_data = df.to_csv(
-        index=False,
-        encoding="utf-8-sig"
-    )
+        index=False
+    ).encode("utf-8-sig")
 
-    # CSV 다운로드 버튼
     st.download_button(
         label="CSV 데이터 다운로드",
         data=csv_data,
-        file_name="production_data_download.csv",
+        file_name="production_data.csv",
         mime="text/csv"
     )
