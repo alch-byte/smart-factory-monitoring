@@ -13,6 +13,7 @@ st.set_page_config(
     layout="wide"
 )
 
+
 # ==========================================
 # 2. 화면 디자인 설정
 # ==========================================
@@ -38,7 +39,7 @@ st.markdown("""
 
 
 # ==========================================
-# 3. 사이드바 메뉴
+# 3. 사이드바 메뉴 설정
 # ==========================================
 
 st.sidebar.title("🏭 스마트공장")
@@ -55,7 +56,7 @@ menu = st.sidebar.radio(
 
 
 # ==========================================
-# 4. CSV 파일 불러오기
+# 4. CSV 파일 연결
 # ==========================================
 
 st.sidebar.markdown("---")
@@ -94,17 +95,44 @@ else:
 
 if df is not None:
 
-    # timestamp를 날짜와 시간 형식으로 변환
-    df["timestamp"] = pd.to_datetime(
-        df["timestamp"],
-        errors="coerce"
-    )
+    # 필요한 컬럼 확인
+    required_columns = [
+        "timestamp",
+        "machine_id",
+        "product_id",
+        "production_count",
+        "defect_count",
+        "temperature",
+        "humidity",
+        "operating_status"
+    ]
 
-    # 날짜 변환에 실패한 데이터 확인
-    df = df.dropna(subset=["timestamp"])
+    missing_columns = [
+        col for col in required_columns
+        if col not in df.columns
+    ]
 
-    # 시간 순서대로 정렬
-    df = df.sort_values("timestamp")
+    if missing_columns:
+
+        st.error(
+            f"CSV 파일에 필요한 컬럼이 없습니다: {missing_columns}"
+        )
+
+        df = None
+
+    else:
+
+        # 날짜 및 시간 형식으로 변환
+        df["timestamp"] = pd.to_datetime(
+            df["timestamp"],
+            errors="coerce"
+        )
+
+        # 날짜 변환에 실패한 행 제거
+        df = df.dropna(subset=["timestamp"])
+
+        # 시간 순서대로 정렬
+        df = df.sort_values("timestamp")
 
 
 # ==========================================
@@ -114,46 +142,91 @@ if df is not None:
 if menu == "생산 현황":
 
     st.title("📊 생산 현황")
-    st.markdown("스마트공장 생산 데이터를 실시간으로 모니터링합니다.")
+
+    st.markdown(
+        "스마트공장 생산 데이터를 모니터링합니다."
+    )
 
     if df is not None:
 
-        # 생산 현황 카드
-        col1, col2, col3, col4 = st.columns(4)
+        # ----------------------------------
+        # 생산 데이터 계산
+        # ----------------------------------
 
+        # 전체 생산량
         total_production = df["production_count"].sum()
+
+        # 전체 불량 제품 수
         total_defect = df["defect_count"].sum()
 
-        defect_rate = (
-            total_defect / total_production * 100
-            if total_production > 0 else 0
-        )
+        # 정상 제품 수
+        total_normal = total_production - total_defect
 
-        machine_count = df["machine_id"].nunique()
+        # 전체 불량률
+        if total_production > 0:
+
+            defect_rate = (
+                total_defect / total_production
+            ) * 100
+
+        else:
+
+            defect_rate = 0
+
+        # 평균 공정 온도
+        avg_temperature = df["temperature"].mean()
+
+        # ----------------------------------
+        # 생산 현황 KPI 카드
+        # ----------------------------------
+
+        st.subheader("📌 생산 현황 주요 지표")
+
+        # 첫 번째 줄: 4개 지표
+        col1, col2, col3, col4 = st.columns(4)
 
         col1.metric(
-            "총 생산량",
-            f"{total_production:,.0f}개"
+            label="총생산량",
+            value=f"{total_production:,.0f}개"
         )
 
         col2.metric(
-            "총 불량 수량",
-            f"{total_defect:,.0f}개"
+            label="정상 제품",
+            value=f"{total_normal:,.0f}개"
         )
 
         col3.metric(
-            "불량률",
-            f"{defect_rate:.2f}%"
+            label="불량 제품",
+            value=f"{total_defect:,.0f}개"
         )
 
         col4.metric(
-            "가동 설비 수",
-            f"{machine_count}대"
+            label="불량률",
+            value=f"{defect_rate:.2f}%"
+        )
+
+        # ----------------------------------
+        # 두 번째 줄: 평균 공정 온도
+        # ----------------------------------
+
+        st.markdown("---")
+
+        st.subheader("🌡️ 공정 환경 지표")
+
+        temp_col1, temp_col2, temp_col3 = st.columns(3)
+
+        temp_col2.metric(
+            label="평균 공정 온도",
+            value=f"{avg_temperature:.2f} ℃"
+            if pd.notna(avg_temperature) else "-"
         )
 
         st.markdown("---")
 
+        # ----------------------------------
         # 데이터 기본 정보
+        # ----------------------------------
+
         st.subheader("📋 데이터 기본 정보")
 
         info1, info2, info3, info4 = st.columns(4)
@@ -170,17 +243,24 @@ if menu == "생산 현황":
 
         info3.metric(
             "데이터 시작 시간",
-            df["timestamp"].min().strftime("%Y-%m-%d %H:%M:%S")
+            df["timestamp"].min().strftime(
+                "%Y-%m-%d %H:%M:%S"
+            ) if len(df) > 0 else "-"
         )
 
         info4.metric(
             "데이터 종료 시간",
-            df["timestamp"].max().strftime("%Y-%m-%d %H:%M:%S")
+            df["timestamp"].max().strftime(
+                "%Y-%m-%d %H:%M:%S"
+            ) if len(df) > 0 else "-"
         )
 
         st.markdown("---")
 
-        # 처음 10개 데이터 표시
+        # ----------------------------------
+        # 처음 10개 데이터
+        # ----------------------------------
+
         st.subheader("📄 처음 10개 데이터")
 
         st.dataframe(
@@ -210,24 +290,40 @@ elif menu == "품질 관리":
         total_production = df["production_count"].sum()
         total_defect = df["defect_count"].sum()
 
-        defect_rate = (
-            total_defect / total_production * 100
-            if total_production > 0 else 0
-        )
+        if total_production > 0:
+
+            defect_rate = (
+                total_defect / total_production
+            ) * 100
+
+        else:
+
+            defect_rate = 0
 
         col1, col2 = st.columns(2)
 
-        col1.metric("총 불량 수량", f"{total_defect:,.0f}개")
-        col2.metric("불량률", f"{defect_rate:.2f}%")
+        col1.metric(
+            "총 불량 수량",
+            f"{total_defect:,.0f}개"
+        )
+
+        col2.metric(
+            "불량률",
+            f"{defect_rate:.2f}%"
+        )
+
+        st.markdown("---")
 
         st.subheader("불량 데이터")
 
         st.dataframe(
             df[df["defect_count"] > 0],
-            use_container_width=True
+            use_container_width=True,
+            hide_index=True
         )
 
     else:
+
         st.warning("먼저 CSV 파일을 연결해주세요.")
 
 
@@ -245,23 +341,36 @@ elif menu == "설비 모니터링":
 
         col1.metric(
             "평균 온도",
-            f"{df['temperature'].mean():.1f} ℃"
+            f"{df['temperature'].mean():.2f} ℃"
+            if pd.notna(df["temperature"].mean()) else "-"
         )
 
         col2.metric(
             "평균 습도",
-            f"{df['humidity'].mean():.1f} %"
+            f"{df['humidity'].mean():.2f} %"
+            if pd.notna(df["humidity"].mean()) else "-"
         )
+
+        st.markdown("---")
 
         st.subheader("설비 가동 상태")
 
         st.dataframe(
-            df[["timestamp", "machine_id", "temperature",
-                "humidity", "operating_status"]],
-            use_container_width=True
+            df[
+                [
+                    "timestamp",
+                    "machine_id",
+                    "temperature",
+                    "humidity",
+                    "operating_status"
+                ]
+            ],
+            use_container_width=True,
+            hide_index=True
         )
 
     else:
+
         st.warning("먼저 CSV 파일을 연결해주세요.")
 
 
@@ -277,16 +386,20 @@ elif menu == "데이터 관리":
 
         st.subheader("전체 데이터")
 
-        st.write(f"전체 데이터: {len(df):,}건")
+        st.write(
+            f"전체 데이터: {len(df):,}건"
+        )
 
-        # 전체 CSV 데이터 표시
+        # 전체 데이터 표시
         st.dataframe(
             df,
             use_container_width=True,
             hide_index=True
         )
 
-        # CSV 다운로드 기능
+        st.markdown("---")
+
+        # CSV 다운로드
         csv_data = df.to_csv(
             index=False,
             encoding="utf-8-sig"
@@ -300,4 +413,5 @@ elif menu == "데이터 관리":
         )
 
     else:
+
         st.warning("먼저 CSV 파일을 연결해주세요.")
