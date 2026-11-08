@@ -291,7 +291,6 @@ if menu == "생산 현황":
         f"생산 목표 달성률: **{achievement_rate:.1f}%**"
     )
 
-    # 진행률 막대그래프
     st.progress(
         min(achievement_rate, 100) / 100
     )
@@ -407,11 +406,7 @@ elif menu == "품질 관리":
         .reset_index()
     )
 
-    # --------------------------------------------------
     # 설비별 불량률 계산
-    # --------------------------------------------------
-
-    # 생산량이 0보다 큰 경우에만 불량률 계산
     quality_df["불량률(%)"] = quality_df.apply(
         lambda row: (
             row["defect_count"] /
@@ -462,7 +457,7 @@ elif menu == "품질 관리":
 
     st.subheader("설비별 불량률 TOP 10")
 
-    # 생산량이 0인 설비는 그래프에서 제외
+    # 생산량이 0인 설비 제외
     defect_rate_df = quality_df[
         quality_df["production_count"] > 0
     ].copy()
@@ -473,7 +468,7 @@ elif menu == "품질 관리":
         ascending=False
     )
 
-    # 상위 10개 설비만 선택
+    # 상위 10개 설비 선택
     top10_df = defect_rate_df.head(10).copy()
 
     if top10_df.empty:
@@ -502,19 +497,110 @@ elif menu == "품질 관리":
             }
         )
 
-        # 막대 위에 불량률 표시
         fig.update_traces(
             textposition="outside",
             cliponaxis=False
         )
 
-        # 그래프 디자인 설정
         fig.update_layout(
             xaxis_title="설비번호",
             yaxis_title="불량률(%)",
             yaxis_ticksuffix="%",
             plot_bgcolor="white",
             paper_bgcolor="white"
+        )
+
+        st.plotly_chart(
+            fig,
+            use_container_width=True
+        )
+
+    # --------------------------------------------------
+    # 날짜별 불량률 변화 그래프
+    # --------------------------------------------------
+
+    st.subheader("날짜별 불량률 변화")
+
+    # timestamp에서 날짜만 추출
+    df["date"] = df["timestamp"].dt.date
+
+    # 날짜별 생산량과 불량량 합계 계산
+    daily_quality_df = (
+        df.groupby("date")[
+            ["production_count", "defect_count"]
+        ]
+        .sum()
+        .reset_index()
+    )
+
+    # 날짜별 불량률 계산
+    daily_quality_df["불량률(%)"] = (
+        daily_quality_df.apply(
+            lambda row: (
+                row["defect_count"] /
+                row["production_count"] * 100
+                if row["production_count"] > 0
+                else None
+            ),
+            axis=1
+        )
+    )
+
+    # 날짜순 정렬
+    daily_quality_df = daily_quality_df.sort_values(
+        "date"
+    )
+
+    # 생산량이 0인 날짜는 그래프에서 제외
+    daily_chart_df = daily_quality_df.dropna(
+        subset=["불량률(%)"]
+    ).copy()
+
+    if daily_chart_df.empty:
+
+        st.warning(
+            "날짜별 불량률을 계산할 수 있는 데이터가 없습니다."
+        )
+
+    else:
+
+        # Plotly 선그래프 생성
+        fig = px.line(
+            daily_chart_df,
+            x="date",
+            y="불량률(%)",
+            markers=True,
+            title="날짜별 불량률 변화",
+            labels={
+                "date": "날짜",
+                "불량률(%)": "불량률(%)"
+            },
+            hover_data={
+                "date": True,
+                "불량률(%)": ":.2f"
+            }
+        )
+
+        # 점과 선 디자인 설정
+        fig.update_traces(
+            mode="lines+markers",
+            marker=dict(size=8),
+            line=dict(width=2),
+            hovertemplate=(
+                "날짜: %{x}<br>"
+                "불량률: %{y:.2f}%"
+                "<extra></extra>"
+            )
+        )
+
+        # 그래프 디자인 설정
+        fig.update_layout(
+            xaxis_title="날짜",
+            yaxis_title="불량률(%)",
+            yaxis_ticksuffix="%",
+            plot_bgcolor="white",
+            paper_bgcolor="white",
+            hovermode="x unified"
         )
 
         # 그래프 화면 출력
@@ -524,12 +610,61 @@ elif menu == "품질 관리":
         )
 
     # --------------------------------------------------
+    # 날짜별 품질 집계 데이터 확인
+    # --------------------------------------------------
+
+    with st.expander("날짜별 생산량 및 불량량 집계 확인"):
+
+        daily_table = daily_quality_df.copy()
+
+        daily_table["날짜"] = (
+            daily_table["date"].astype(str)
+        )
+
+        daily_table = daily_table.rename(
+            columns={
+                "production_count": "총생산량",
+                "defect_count": "불량 수량",
+                "불량률(%)": "불량률"
+            }
+        )
+
+        daily_table["총생산량"] = (
+            daily_table["총생산량"].map(
+                lambda x: f"{x:,.0f}"
+            )
+        )
+
+        daily_table["불량 수량"] = (
+            daily_table["불량 수량"].map(
+                lambda x: f"{x:,.0f}"
+            )
+        )
+
+        daily_table["불량률"] = (
+            daily_table["불량률"].map(
+                lambda x: (
+                    f"{x:.2f}%"
+                    if pd.notna(x)
+                    else "계산 불가"
+                )
+            )
+        )
+
+        st.dataframe(
+            daily_table[
+                ["날짜", "총생산량", "불량 수량", "불량률"]
+            ],
+            use_container_width=True,
+            hide_index=True
+        )
+
+    # --------------------------------------------------
     # 설비별 품질 분석 데이터 표
     # --------------------------------------------------
 
     st.subheader("설비별 품질 분석")
 
-    # 화면에 표시할 데이터 복사
     quality_table = quality_df[
         [
             "machine_id",
@@ -549,7 +684,7 @@ elif menu == "품질 관리":
         }
     )
 
-    # 생산량과 불량 수량에 천 단위 쉼표 표시
+    # 생산량과 불량 수량 천 단위 쉼표 표시
     quality_table["총생산량"] = (
         quality_table["총생산량"].map(
             lambda x: f"{x:,.0f}"
