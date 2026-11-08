@@ -1,4 +1,6 @@
 
+%%writefile app.py
+
 import streamlit as st
 import pandas as pd
 import plotly.express as px
@@ -66,6 +68,7 @@ try:
     df = pd.read_csv(file_name)
 
 except FileNotFoundError:
+
     uploaded_file = st.sidebar.file_uploader(
         "생산 데이터 CSV 업로드",
         type=["csv"]
@@ -73,6 +76,7 @@ except FileNotFoundError:
 
     if uploaded_file is not None:
         df = pd.read_csv(uploaded_file)
+
     else:
         st.warning("production_data.csv 파일을 업로드해주세요.")
         st.stop()
@@ -133,7 +137,7 @@ for col in numeric_columns:
 df["production_count"] = df["production_count"].fillna(0)
 df["defect_count"] = df["defect_count"].fillna(0)
 
-# 최신 기록을 찾기 쉽도록 시간순 정렬
+# 시간순 정렬
 df = df.sort_values("timestamp").reset_index(drop=True)
 
 
@@ -143,7 +147,7 @@ if df.empty:
 
 
 # --------------------------------------------------
-# 6. 공통 함수: 품질 상태 색상 지정
+# 6. 품질 상태 색상 지정 함수
 # --------------------------------------------------
 
 def color_quality_status(value):
@@ -323,16 +327,20 @@ if menu == "생산 현황":
     )
 
     fig.update_traces(textposition="outside")
+
     fig.update_layout(
         plot_bgcolor="white",
         paper_bgcolor="white"
     )
 
-    st.plotly_chart(fig, use_container_width=True)
+    st.plotly_chart(
+        fig,
+        use_container_width=True
+    )
 
     st.divider()
 
-    # 데이터 정보
+    # 생산 데이터 정보
     st.subheader("생산 데이터 정보")
 
     col1, col2, col3 = st.columns(3)
@@ -396,20 +404,9 @@ elif menu == "품질 관리":
 
     col1, col2, col3 = st.columns(3)
 
-    col1.metric(
-        "전체 생산량",
-        f"{total_production:,.0f}개"
-    )
-
-    col2.metric(
-        "전체 불량 수량",
-        f"{total_defect:,.0f}개"
-    )
-
-    col3.metric(
-        "전체 불량률",
-        total_defect_rate_text
-    )
+    col1.metric("전체 생산량", f"{total_production:,.0f}개")
+    col2.metric("전체 불량 수량", f"{total_defect:,.0f}개")
+    col3.metric("전체 불량률", total_defect_rate_text)
 
     st.divider()
 
@@ -448,10 +445,7 @@ elif menu == "품질 관리":
 
     warning_count = len(warning_df)
 
-    st.metric(
-        "경고 설비 수",
-        f"{warning_count}대"
-    )
+    st.metric("경고 설비 수", f"{warning_count}대")
 
     if warning_count > 0:
 
@@ -520,8 +514,9 @@ elif menu == "품질 관리":
     # 날짜별 불량률 변화 그래프
     st.subheader("날짜별 불량률 변화")
 
-    # timestamp에서 날짜 추출
     date_df = df.copy()
+
+    # timestamp에서 날짜 추출
     date_df["date"] = date_df["timestamp"].dt.date
 
     # 날짜별 생산량과 불량 수량 합계
@@ -544,7 +539,6 @@ elif menu == "품질 관리":
         axis=1
     )
 
-    # 불량률 계산이 가능한 날짜만 그래프에 사용
     daily_chart_df = daily_quality_df.dropna(
         subset=["불량률(%)"]
     )
@@ -560,10 +554,6 @@ elif menu == "품질 관리":
             labels={
                 "date": "날짜",
                 "불량률(%)": "불량률(%)"
-            },
-            hover_data={
-                "date": True,
-                "불량률(%)": ":.2f"
             }
         )
 
@@ -630,7 +620,6 @@ elif menu == "품질 관리":
         quality_df["production_count"] >= min_production
     ].copy()
 
-    # 생산량이 0인 설비는 순위에서 제외
     quality_rank_df = quality_rank_df[
         quality_rank_df["production_count"] > 0
     ]
@@ -674,7 +663,6 @@ elif menu == "품질 관리":
         }
     )
 
-    # 숫자 표시 형식
     quality_rank_table["총생산량"] = (
         quality_rank_table["총생산량"].map(
             lambda x: f"{x:,.0f}"
@@ -706,7 +694,6 @@ elif menu == "품질 관리":
             hide_index=True
         )
 
-        # 상위 10개 설비
         st.subheader("품질 순위 TOP 10")
 
         top10_rank_table = quality_rank_table.head(10)
@@ -891,9 +878,12 @@ elif menu == "설비 모니터링":
 
     st.title("🏭 설비 모니터링")
 
-    st.write("설비를 선택하면 해당 설비의 가장 최근 기록을 확인할 수 있습니다.")
+    st.write(
+        "설비를 선택하면 최근 센서 정보와 "
+        "온도·습도 변화 그래프를 확인할 수 있습니다."
+    )
 
-    # CSV의 machine_id에서 설비 목록 가져오기
+    # 설비번호 목록 가져오기
     machine_list = sorted(
         df["machine_id"].dropna().unique().tolist(),
         key=str
@@ -914,18 +904,26 @@ elif menu == "설비 모니터링":
         df["machine_id"] == selected_machine
     ].copy()
 
-    # timestamp 기준으로 가장 최근 기록 찾기
+    # timestamp 기준으로 시간순 정렬
     selected_machine_df = selected_machine_df.sort_values(
         "timestamp"
-    )
+    ).reset_index(drop=True)
 
+    if selected_machine_df.empty:
+        st.warning("선택한 설비의 데이터가 없습니다.")
+        st.stop()
+
+    # 가장 최근 기록 가져오기
     latest_record = selected_machine_df.iloc[-1]
 
     st.divider()
 
+    # --------------------------------------------------
+    # 최근 설비 상태 표시
+    # --------------------------------------------------
+
     st.subheader("최근 설비 상태")
 
-    # 설비번호와 최근 기록 시간
     col1, col2 = st.columns(2)
 
     with col1:
@@ -942,7 +940,7 @@ elif menu == "설비 모니터링":
             )
         )
 
-    # 최근 온도와 습도
+    # 최근 온도와 습도 표시
     col1, col2 = st.columns(2)
 
     with col1:
@@ -965,16 +963,169 @@ elif menu == "설비 모니터링":
             else "데이터 없음"
         )
 
-    # 최근 가동 상태
-    st.subheader("최근 가동 상태")
+    st.divider()
+
+    # --------------------------------------------------
+    # 온도 이상 경고 기능
+    # --------------------------------------------------
+
+    st.subheader("🌡️ 온도 이상 경고 설정")
+
+    # 온도 경고 기준 설정
+    temperature_limit = st.slider(
+        "온도 경고 기준 (℃)",
+        min_value=30,
+        max_value=50,
+        value=40,
+        step=1
+    )
+
+    st.write(
+        f"현재 온도 경고 기준: **{temperature_limit} ℃**"
+    )
+
+    # 최근 온도와 경고 기준 비교
+    if pd.isna(temperature):
+
+        st.warning(
+            "최근 온도 데이터가 없어 온도 경고 상태를 판정할 수 없습니다."
+        )
+
+    elif temperature > temperature_limit:
+
+        st.error(
+            f"경고: {selected_machine} 설비의 온도가 기준을 초과했습니다."
+        )
+
+    else:
+
+        st.success(
+            f"{selected_machine} 설비의 온도가 정상 범위입니다."
+        )
+
+    # 가동 상태는 온도 경고와 별도로 표시
+    st.subheader("⚙️ 설비 가동 상태")
 
     operating_status = latest_record["operating_status"]
 
     if pd.isna(operating_status):
         st.info("가동 상태 데이터가 없습니다.")
+    else:
+        st.write(f"현재 가동 상태: **{operating_status}**")
+
+    st.divider()
+
+    # --------------------------------------------------
+    # 시간별 온도 변화 그래프
+    # --------------------------------------------------
+
+    st.subheader("시간별 온도 변화")
+
+    # 온도 데이터가 있는 행만 그래프에 사용
+    temperature_df = selected_machine_df.dropna(
+        subset=["temperature"]
+    ).copy()
+
+    if not temperature_df.empty:
+
+        fig_temperature = px.line(
+            temperature_df,
+            x="timestamp",
+            y="temperature",
+            markers=True,
+            title="시간별 온도 변화",
+            labels={
+                "timestamp": "기록 시간",
+                "temperature": "공정 온도(℃)"
+            }
+        )
+
+        # 마우스를 올리면 시간과 온도 표시
+        fig_temperature.update_traces(
+            hovertemplate=(
+                "기록 시간: %{x}<br>"
+                "공정 온도: %{y:.1f} ℃"
+                "<extra></extra>"
+            )
+        )
+
+        # 현재 설정한 온도 경고 기준을 빨간색 점선으로 표시
+        fig_temperature.add_hline(
+            y=temperature_limit,
+            line_dash="dash",
+            line_color="red",
+            line_width=2,
+            annotation_text=f"경고 기준 {temperature_limit} ℃",
+            annotation_position="top left"
+        )
+
+        fig_temperature.update_layout(
+            plot_bgcolor="white",
+            paper_bgcolor="white",
+            hovermode="x unified",
+            xaxis_title="기록 시간",
+            yaxis_title="공정 온도(℃)"
+        )
+
+        st.plotly_chart(
+            fig_temperature,
+            use_container_width=True
+        )
 
     else:
-        st.write(f"**{operating_status}**")
+        st.info("표시할 온도 데이터가 없습니다.")
+
+    st.divider()
+
+    # --------------------------------------------------
+    # 시간별 습도 변화 그래프
+    # --------------------------------------------------
+
+    st.subheader("시간별 습도 변화")
+
+    # 습도 데이터가 있는 행만 그래프에 사용
+    humidity_df = selected_machine_df.dropna(
+        subset=["humidity"]
+    ).copy()
+
+    if not humidity_df.empty:
+
+        fig_humidity = px.line(
+            humidity_df,
+            x="timestamp",
+            y="humidity",
+            markers=True,
+            title="시간별 습도 변화",
+            labels={
+                "timestamp": "기록 시간",
+                "humidity": "습도(%)"
+            }
+        )
+
+        # 마우스를 올리면 시간과 습도 표시
+        fig_humidity.update_traces(
+            hovertemplate=(
+                "기록 시간: %{x}<br>"
+                "습도: %{y:.1f}%"
+                "<extra></extra>"
+            )
+        )
+
+        fig_humidity.update_layout(
+            plot_bgcolor="white",
+            paper_bgcolor="white",
+            hovermode="x unified",
+            xaxis_title="기록 시간",
+            yaxis_title="습도(%)"
+        )
+
+        st.plotly_chart(
+            fig_humidity,
+            use_container_width=True
+        )
+
+    else:
+        st.info("표시할 습도 데이터가 없습니다.")
 
 
 # ==================================================
